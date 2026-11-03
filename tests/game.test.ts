@@ -135,3 +135,115 @@ describe("combat", () => {
     expect(s.tank).toBe(0);
   });
 });
+
+describe("traveling projectiles", () => {
+  function combat(weapon = 0) {
+    const s = new Simulation();
+    s.start({ ...levels[0], rows: [], boss: false }, freshProgress());
+    s.weapon = weapon;
+    s.enemies = [
+      {
+        id: 1000,
+        x: 0,
+        z: 14,
+        hp: 100,
+        maxHp: 100,
+        type: "grunt",
+        speed: 0,
+        attack: 0,
+      },
+      {
+        id: 1001,
+        x: 1.5,
+        z: 14,
+        hp: 100,
+        maxHp: 100,
+        type: "grunt",
+        speed: 0,
+        attack: 0,
+      },
+      {
+        id: 1002,
+        x: 5,
+        z: 14,
+        hp: 100,
+        maxHp: 100,
+        type: "grunt",
+        speed: 0,
+        attack: 0,
+      },
+    ];
+    return s;
+  }
+  it("launches from each soldier, travels over multiple frames, and damages only on impact", () => {
+    const s = combat();
+    s.step(0.05);
+    expect(s.shots).toHaveLength(s.squad);
+    expect(s.enemies[0].hp).toBe(100);
+    const first = s.shots[0],
+      z = first.z;
+    s.step(0.05);
+    expect(s.shots[0].id).toBe(first.id);
+    expect(s.shots[0].z).toBeGreaterThan(z);
+    for (let i = 0; i < 8; i++) s.step(0.05);
+    expect(s.enemies[0].hp).toBeLessThan(100);
+    expect(s.enemies[1].hp).toBe(100);
+    expect(s.explosions).toHaveLength(0);
+  });
+  it("fires rockets less often and moves them slower than rifle bullets", () => {
+    const rifle = combat(),
+      rockets = combat(2),
+      rapid = combat(1);
+    let rifleVolleys = 0,
+      rocketVolleys = 0,
+      rapidVolleys = 0;
+    for (let i = 0; i < 40; i++) {
+      rifle.step(0.05);
+      rockets.step(0.05);
+      rapid.step(0.05);
+      rifleVolleys += Number(rifle.fired);
+      rocketVolleys += Number(rockets.fired);
+      rapidVolleys += Number(rapid.fired);
+    }
+    expect(rocketVolleys).toBeLessThan(rifleVolleys);
+    expect(rifleVolleys).toBeLessThan(rapidVolleys);
+    const a = combat(),
+      b = combat(2);
+    a.step(0.05);
+    b.step(0.05);
+    expect(b.shots[0].z).toBeLessThan(a.shots[0].z);
+  });
+  it("explodes on impact, damages nearby enemies, and spares enemies outside the blast", () => {
+    const s = combat(2);
+    s.step(0.05);
+    expect(s.explosions).toHaveLength(0);
+    expect(s.enemies.every((e) => e.hp === 100)).toBe(true);
+    for (let i = 0; i < 13; i++) s.step(0.05);
+    expect(s.enemies[0].hp).toBeLessThan(100);
+    expect(s.enemies[1].hp).toBeLessThan(100);
+    expect(s.enemies[2].hp).toBe(100);
+    expect(s.explosions.length).toBeGreaterThan(0);
+  });
+  it("expires missed projectiles and clears projectiles and explosions on retry", () => {
+    const s = combat(2);
+    s.enemies = [];
+    for (let i = 0; i < 50; i++) s.step(0.05);
+    expect(s.shots.every((shot) => shot.age < 2)).toBe(true);
+    const hit = combat(2);
+    for (let i = 0; i < 14; i++) hit.step(0.05);
+    expect(hit.explosions.length).toBeGreaterThan(0);
+    hit.start(levels[0], freshProgress());
+    expect(hit.shots).toHaveLength(0);
+    expect(hit.explosions).toHaveLength(0);
+  });
+  it("adds an enemy per early wave while keeping later wave sizes unchanged", () => {
+    for (const level of [levels[0], levels[4], levels[9], levels[10]]) {
+      const s = new Simulation();
+      s.start(level, freshProgress());
+      s.spawnWave();
+      expect(s.enemies.length).toBe(
+        2 + Math.floor(level.difficulty * 1.3) + (level.id <= 10 ? 1 : 0),
+      );
+    }
+  });
+});

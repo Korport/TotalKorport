@@ -33,6 +33,8 @@ export class Battlefield {
   private gates = new Map<number, TransformNode>();
   private flashes: { mesh: Mesh; life: number }[] = [];
   private road: Mesh[] = [];
+  private projectiles = new Map<number, Mesh>();
+  private explosions = new Map<number, Mesh>();
   private tank: TransformNode;
   private t = 0;
   private materials = new Map<string, StandardMaterial>();
@@ -347,27 +349,69 @@ export class Battlefield {
       root.position.z = g.z;
       root.setEnabled(!g.resolved);
     }
-    if (active) {
+    const shotIds = new Set(active ? sim.shots.map((shot) => shot.id) : []);
+    for (const [id, mesh] of this.projectiles) {
+      if (!shotIds.has(id)) {
+        mesh.dispose();
+        this.projectiles.delete(id);
+      }
+    }
+    if (active)
       for (const shot of sim.shots) {
-        const length = Math.hypot(shot.targetX - shot.x, shot.targetZ - shot.z);
-        const mesh = this.box(
-          "tracer",
-          shot.rocket ? 0.09 : 0.035,
-          0.035,
-          length,
-          shot.rocket ? "#ffbf65" : "#f7edac",
-          (shot.x + shot.targetX) / 2,
-          1.05,
-          (shot.z + shot.targetZ) / 2,
-        );
+        let mesh = this.projectiles.get(shot.id);
+        if (!mesh) {
+          mesh = MeshBuilder.CreateSphere(
+            shot.rocket ? "rocket" : "bullet",
+            {
+              diameter: shot.rocket ? 0.24 : 0.14,
+              segments: 6,
+            },
+            this.scene,
+          );
+          mesh.material = this.mat(shot.rocket ? "#ffad46" : "#fff2ae", true);
+          if (shot.rocket) mesh.scaling.z = 2.2;
+          this.projectiles.set(shot.id, mesh);
+        }
+        mesh.position.set(shot.x, shot.y, shot.z);
         mesh.rotation.y = Math.atan2(
           shot.targetX - shot.x,
           shot.targetZ - shot.z,
         );
-        mesh.material = this.mat(shot.rocket ? "#ffbf65" : "#f7edac", true);
-        this.flashes.push({ mesh, life: 0.065 });
       }
-      sim.shots = [];
+    const blastIds = new Set(
+      active ? sim.explosions.map((blast) => blast.id) : [],
+    );
+    for (const [id, mesh] of this.explosions) {
+      if (!blastIds.has(id)) {
+        mesh.dispose();
+        this.explosions.delete(id);
+      }
+    }
+    if (active)
+      for (const blast of sim.explosions) {
+        let mesh = this.explosions.get(blast.id);
+        if (!mesh) {
+          mesh = MeshBuilder.CreateSphere(
+            "rocket explosion",
+            { diameter: 2, segments: 8 },
+            this.scene,
+          );
+          const material = this.mat("#ff973e", true).clone("explosion");
+          material.disableLighting = true;
+          mesh.material = material;
+          mesh.onDisposeObservable.add(() => material.dispose());
+          this.explosions.set(blast.id, mesh);
+        }
+        mesh.position.set(blast.x, 0.8, blast.z);
+        const progress = 1 - blast.life / 0.3;
+        mesh.scaling.set(
+          blast.radius * (0.2 + progress * 0.8),
+          0.6 + progress * 0.5,
+          blast.radius * (0.2 + progress * 0.8),
+        );
+        (mesh.material as StandardMaterial).alpha = (1 - progress) * 0.6;
+      }
+    if (active) {
       for (const m of this.road) {
         m.position.z -= dt * 6;
         if (m.position.z < -18) m.position.z += 112;

@@ -145,3 +145,89 @@ test("first recruitment gate visibly increases the squad during a real browser r
   ).toBeVisible();
   await page.screenshot({ path: "test-results/first-gate.png" });
 });
+
+test("renders moving bullet dots and expanding rocket impact effects", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.locator("#loading")).toBeHidden();
+  const result = await page.evaluate(async () => {
+    const simulationPath = "/src/simulation.ts",
+      rendererPath = "/src/renderer.ts",
+      campaignPath = "/src/campaign.ts",
+      progressPath = "/src/progress.ts";
+    const { Simulation } = await import(simulationPath);
+    const { Battlefield } = await import(rendererPath);
+    const { levels } = await import(campaignPath);
+    const { freshProgress } = await import(progressPath);
+    const canvas = document.createElement("canvas");
+    canvas.width = 800;
+    canvas.height = 600;
+    document.body.appendChild(canvas);
+    const field = new Battlefield(canvas),
+      sim = new Simulation();
+    sim.start({ ...levels[0], rows: [], boss: false }, freshProgress());
+    sim.step(0.05);
+    field.update(sim, 0.05, true);
+    const bullets = field.scene.meshes.filter(
+      (m: { name: string }) => m.name === "bullet",
+    );
+    const bulletCount = bullets.length,
+      startZ = bullets[0].position.z;
+    sim.step(0.05);
+    field.update(sim, 0.05, true);
+    const moved = bullets[0].position.z > startZ;
+    field.update(sim, 0, true);
+    const pausedZ = bullets[0].position.z;
+    field.update(sim, 0, true);
+    const paused = bullets[0].position.z === pausedZ;
+    sim.start({ ...levels[0], rows: [], boss: false }, freshProgress());
+    field.update(sim, 0, true);
+    sim.weapon = 2;
+    sim.enemies = [
+      {
+        id: 1000,
+        x: 0,
+        z: 14,
+        hp: 100,
+        maxHp: 100,
+        type: "grunt",
+        speed: 0,
+        attack: 0,
+      },
+    ];
+    let rocketCount = 0,
+      blastCount = 0;
+    for (let i = 0; i < 15; i++) {
+      sim.step(0.05);
+      field.update(sim, 0.05, true);
+      rocketCount = Math.max(
+        rocketCount,
+        field.scene.meshes.filter((m: { name: string }) => m.name === "rocket")
+          .length,
+      );
+      blastCount = Math.max(
+        blastCount,
+        field.scene.meshes.filter(
+          (m: { name: string }) => m.name === "rocket explosion",
+        ).length,
+      );
+    }
+    sim.shots = [];
+    sim.explosions = [];
+    field.update(sim, 0, false);
+    const cleaned = !field.scene.meshes.some((m: { name: string }) =>
+      ["bullet", "rocket", "rocket explosion"].includes(m.name),
+    );
+    field.scene.dispose();
+    field.engine.dispose();
+    canvas.remove();
+    return { bulletCount, moved, paused, rocketCount, blastCount, cleaned };
+  });
+  expect(result.bulletCount).toBe(5);
+  expect(result.moved).toBe(true);
+  expect(result.paused).toBe(true);
+  expect(result.rocketCount).toBeGreaterThan(0);
+  expect(result.blastCount).toBeGreaterThan(0);
+  expect(result.cleaned).toBe(true);
+});
