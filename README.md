@@ -14,7 +14,7 @@ py -m http.server 8080 --bind 127.0.0.1
 python3 -m http.server 8080 --bind 127.0.0.1
 ```
 
-Enter `localhost:8080` in your browser address bar and click **Deploy Squad**. Do not open `index.html` directly. This bundle needs no Node.js installation. It is the first prototype snapshot; rebuild from source for subsequent code changes.
+Enter `localhost:8080` in your browser address bar and click **Deploy Squad**. Do not open `index.html` directly. This bundle needs no Node.js installation. The ZIP includes the projectile and early-mission balance update. Run the server inside the folder containing `index.html` and `assets`, and keep the terminal open while playing.
 
 ## Play locally
 
@@ -31,8 +31,10 @@ Green gates recruit or multiply soldiers, upgrade weapons, restore armor, or act
 
 ## Included in this first build
 
-- Procedural 3D soldiers, terrain, enemies, gates, tank, tracers, hit effects, and synthesized sound.
-- Rifle, rapid-fire gun, rocket launcher, and 12-second tank support.
+- Procedural 3D soldiers, terrain, enemies, gates, tank, moving bullet dots, rocket explosions, hit effects, and synthesized sound.
+- Rifle and rapid-fire bullets travel from each soldier. Rockets fire every 0.75 seconds, move more slowly, and explode on impact with a small splash radius. Tank shells also deal splash damage.
+- Missions 1–10 have one extra enemy per wave; missions 1–5 also have shorter wave intervals.
+- 12-second tank support.
 - Recruit/multiplier/penalty gates, repair gates, armored enemies, and tank bosses.
 - 50 sequentially unlocked mission configurations across five regions, using shared encounter templates with timing and difficulty variations. These are a campaign foundation, **not 50 finished, hand-balanced levels**.
 - Armory upgrades for starting recruits, damage, and armor; first-clear rewards and reduced replay rewards.
