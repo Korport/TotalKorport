@@ -24,11 +24,19 @@ export interface WorldGate {
   resolved: boolean;
 }
 export interface Shot {
+  id: number;
   x: number;
   z: number;
-  targetX: number;
-  targetZ: number;
-  rocket: boolean;
+  vx: number;
+  vz: number;
+  damage: number;
+  radius: number;
+  splash: number;
+}
+export interface Impact {
+  x: number;
+  z: number;
+  radius: number;
 }
 export class Simulation {
   level: Level = levels[0];
@@ -41,10 +49,12 @@ export class Simulation {
   weapon = 0;
   tank = 0;
   kills = 0;
+  fired = false;
   damage = 1;
   enemies: Enemy[] = [];
   gates: WorldGate[] = [];
   shots: Shot[] = [];
+  impacts: Impact[] = [];
   status: "idle" | "running" | "won" | "lost" = "idle";
   message = "";
   messageUntil = 0;
@@ -67,9 +77,11 @@ export class Simulation {
     this.weapon = 0;
     this.tank = 0;
     this.kills = 0;
+    this.fired = false;
     this.enemies = [];
     this.gates = [];
     this.shots = [];
+    this.impacts = [];
     this.row = 0;
     this.serial = 0;
     this.nextWave = 3;
@@ -92,7 +104,7 @@ export class Simulation {
     if (this.squad <= 0) this.status = "lost";
   }
   spawnWave() {
-    const n = 2 + Math.floor(this.level.difficulty * 1.3);
+    const n = 5 + Math.floor(this.level.difficulty * 1.5);
     for (let j = 0; j < n; j++) {
       const armored = this.level.id > 2 && j === 0;
       const hp = (armored ? 16 : 5) * this.level.difficulty;
@@ -110,9 +122,9 @@ export class Simulation {
   }
   step(dt: number) {
     if (this.status !== "running") return;
+    this.fired = false;
     dt = Math.min(dt, 0.05);
     this.time += dt;
-    this.shots = [];
     this.x +=
       (Math.max(-5, Math.min(5, this.targetX)) - this.x) * Math.min(1, dt * 12);
     this.tank = Math.max(0, this.tank - dt);
@@ -139,7 +151,7 @@ export class Simulation {
     if (this.time >= this.nextWave && this.time < this.level.duration - 13) {
       this.spawnWave();
       this.nextWave =
-        this.time + Math.max(2.8, 5.8 - this.level.difficulty * 0.3);
+        this.time + Math.max(2.8, 4.8 - this.level.difficulty * 0.3);
     }
     if (
       this.level.boss &&
@@ -160,40 +172,84 @@ export class Simulation {
       });
       this.note("HEAVY CONTACT · KEEP FIRING");
     }
-    const fireInterval = this.tank > 0 ? 0.38 : this.weapon === 1 ? 0.13 : 0.25;
+    const heavy = this.tank > 0 || this.weapon === 2;
+    const fireInterval =
+      this.tank > 0 ? 1.1 : heavy ? 0.8 : this.weapon === 1 ? 0.13 : 0.25;
     if (this.time >= this.nextShot) {
+      this.fired = true;
       this.nextShot = this.time + fireInterval;
-      const range = this.tank > 0 ? 12 : this.weapon === 2 ? 5 : 2.2;
+      const range = this.tank > 0 ? 12 : heavy ? 5 : 2.2;
       const targets = this.enemies
-        .filter((e) => e.z > 0 && Math.abs(e.x - this.x) < range)
+        .filter((e) => e.hp > 0 && e.z > 1 && Math.abs(e.x - this.x) < range)
         .sort((a, b) => a.z - b.z);
       const target = targets[0];
       const damage =
         this.tank > 0
-          ? 30
-          : (this.weapon === 2 ? 2.6 : 1.2) *
-            Math.sqrt(this.squad) *
-            this.damage;
-      const origins = Math.min(this.squad, 8);
-      for (let i = 0; i < origins; i++)
+          ? 75
+          : (heavy ? 8 : 1.5) * Math.sqrt(this.squad) * this.damage;
+      const origins = heavy ? 1 : Math.min(this.squad, 8);
+      const speed = this.tank > 0 ? 17 : heavy ? 20 : 38;
+      for (let i = 0; i < origins; i++) {
+        const x = this.x + (i - (origins - 1) / 2) * 0.45;
+        const dx = target ? target.x - x : 0;
+        const dz = target ? target.z - 1 : 34;
+        const length = Math.hypot(dx, dz);
         this.shots.push({
-          x: this.x + (i - (origins - 1) / 2) * 0.45,
+          id: ++this.serial,
+          x,
           z: 1,
-          targetX: target?.x ?? this.x + (i - (origins - 1) / 2) * 0.45,
-          targetZ: target?.z ?? 34,
-          rocket: this.weapon === 2 || this.tank > 0,
+          vx: (dx / length) * speed,
+          vz: (dz / length) * speed,
+          damage: damage / origins,
+          radius: this.tank > 0 ? 0.28 : heavy ? 0.2 : 0.07,
+          splash: heavy ? 3.8 : 0,
         });
-      if (target) {
-        target.hp -= damage;
-        if (this.weapon === 2 || this.tank > 0)
-          for (const e of this.enemies)
-            if (
-              e !== target &&
-              Math.hypot(e.x - target.x, e.z - target.z) < 3.8
-            )
-              e.hp -= damage * 0.55;
       }
     }
+    // Swept collision keeps fast bullets from skipping an enemy between frames.
+    this.shots = this.shots.filter((shot) => {
+      const dx = shot.vx * dt,
+        dz = shot.vz * dt;
+      const distanceSquared = dx * dx + dz * dz;
+      let hit: Enemy | undefined;
+      let first = Infinity;
+      for (const enemy of this.enemies) {
+        if (enemy.hp <= 0) continue;
+        const radius = (enemy.type === "boss" ? 1.3 : 0.55) + shot.radius;
+        const ox = shot.x - enemy.x,
+          oz = shot.z - enemy.z;
+        const projection = ox * dx + oz * dz;
+        const c = ox * ox + oz * oz - radius * radius;
+        const discriminant = projection * projection - distanceSquared * c;
+        if (distanceSquared === 0 || discriminant < 0) continue;
+        const entry =
+          c <= 0
+            ? 0
+            : (-projection - Math.sqrt(discriminant)) / distanceSquared;
+        if (entry >= 0 && entry <= 1 && entry < first) {
+          hit = enemy;
+          first = entry;
+        }
+      }
+      if (hit) {
+        shot.x += dx * first;
+        shot.z += dz * first;
+        hit.hp -= shot.damage;
+        if (shot.splash > 0) {
+          this.impacts.push({ x: shot.x, z: shot.z, radius: shot.splash });
+          for (const enemy of this.enemies)
+            if (
+              enemy !== hit &&
+              Math.hypot(enemy.x - shot.x, enemy.z - shot.z) < shot.splash
+            )
+              enemy.hp -= shot.damage * 0.55;
+        }
+        return false;
+      }
+      shot.x += dx;
+      shot.z += dz;
+      return shot.z < 42 && Math.abs(shot.x) < 15;
+    });
     for (const e of this.enemies) {
       if (e.hp <= 0) {
         this.kills++;

@@ -31,6 +31,7 @@ export class Battlefield {
   private units: Unit[] = [];
   private enemies = new Map<number, Unit>();
   private gates = new Map<number, TransformNode>();
+  private bullets = new Map<number, Mesh>();
   private flashes: { mesh: Mesh; life: number }[] = [];
   private road: Mesh[] = [];
   private tank: TransformNode;
@@ -347,27 +348,47 @@ export class Battlefield {
       root.position.z = g.z;
       root.setEnabled(!g.resolved);
     }
-    if (active) {
-      for (const shot of sim.shots) {
-        const length = Math.hypot(shot.targetX - shot.x, shot.targetZ - shot.z);
-        const mesh = this.box(
-          "tracer",
-          shot.rocket ? 0.09 : 0.035,
-          0.035,
-          length,
-          shot.rocket ? "#ffbf65" : "#f7edac",
-          (shot.x + shot.targetX) / 2,
-          1.05,
-          (shot.z + shot.targetZ) / 2,
-        );
-        mesh.rotation.y = Math.atan2(
-          shot.targetX - shot.x,
-          shot.targetZ - shot.z,
-        );
-        mesh.material = this.mat(shot.rocket ? "#ffbf65" : "#f7edac", true);
-        this.flashes.push({ mesh, life: 0.065 });
+    const liveShots = new Set(sim.shots.map((shot) => shot.id));
+    for (const [id, mesh] of this.bullets)
+      if (!liveShots.has(id)) {
+        mesh.dispose();
+        this.bullets.delete(id);
       }
-      sim.shots = [];
+    for (const shot of sim.shots) {
+      let mesh = this.bullets.get(shot.id);
+      if (!mesh) {
+        mesh = MeshBuilder.CreateSphere(
+          "bullet",
+          {
+            diameter: shot.radius * 2,
+            segments: 6,
+          },
+          this.scene,
+        );
+        mesh.scaling.z = 1.8;
+        mesh.material = this.mat(shot.splash > 0 ? "#ffbf65" : "#f7edac", true);
+        this.bullets.set(shot.id, mesh);
+      }
+      mesh.position.set(shot.x, 1.05, shot.z);
+      mesh.rotation.y = Math.atan2(shot.vx, shot.vz);
+    }
+    for (const impact of sim.impacts) {
+      const mesh = MeshBuilder.CreateTorus(
+        "splash",
+        {
+          diameter: impact.radius * 2,
+          thickness: 0.12,
+          tessellation: 32,
+        },
+        this.scene,
+      );
+      mesh.position.set(impact.x, 0.12, impact.z);
+      mesh.material = this.mat("#ffbf65", true);
+      this.flashes.push({ mesh, life: 0.25 });
+      this.burst(impact.x, impact.z, "#ffbf65");
+    }
+    sim.impacts = [];
+    if (active) {
       for (const m of this.road) {
         m.position.z -= dt * 6;
         if (m.position.z < -18) m.position.z += 112;

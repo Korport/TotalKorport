@@ -135,3 +135,84 @@ describe("combat", () => {
     expect(s.tank).toBe(0);
   });
 });
+
+describe("individual bullets and splash impacts", () => {
+  function combat(weapon = 0, tank = 0) {
+    const s = new Simulation();
+    s.start({ ...levels[0], rows: [], boss: false }, freshProgress());
+    s.weapon = weapon;
+    s.tank = tank;
+    s.enemies = [
+      {
+        id: 1000,
+        x: 0,
+        z: 8,
+        hp: 200,
+        maxHp: 200,
+        type: "grunt",
+        speed: 0,
+        attack: 0,
+      },
+    ];
+    return s;
+  }
+  it("keeps separate bullets in flight and applies damage only on collision", () => {
+    const s = combat();
+    s.step(0.05);
+    expect(s.shots).toHaveLength(5);
+    expect(new Set(s.shots.map((shot) => shot.id)).size).toBe(5);
+    expect(s.enemies[0].hp).toBe(200);
+    const z = s.shots[0].z;
+    s.step(0.05);
+    expect(s.shots[0].z).toBeGreaterThan(z);
+    expect(s.enemies[0].hp).toBe(200);
+    for (let i = 0; i < 4; i++) s.step(0.05);
+    expect(s.enemies[0].hp).toBeLessThan(200);
+    expect(s.impacts).toHaveLength(0);
+  });
+  it.each([
+    [2, 0],
+    [0, 12],
+  ])(
+    "fires a larger, slower heavy bullet with splash on impact (%i, %i)",
+    (weapon, tank) => {
+      const rifle = combat();
+      rifle.step(0.05);
+      const s = combat(weapon, tank);
+      s.enemies.push(
+        { ...s.enemies[0], id: 1001, x: 2 },
+        { ...s.enemies[0], id: 1002, x: 5 },
+      );
+      s.step(0.05);
+      expect(s.shots).toHaveLength(1);
+      const shot = s.shots[0];
+      expect(shot.radius).toBeGreaterThan(rifle.shots[0].radius);
+      expect(shot.vz).toBeLessThan(rifle.shots[0].vz);
+      expect(s.enemies.map((e) => e.hp)).toEqual([200, 200, 200]);
+      for (let i = 0; i < 12 && !s.impacts.length; i++) s.step(0.05);
+      expect(s.impacts).toHaveLength(1);
+      expect(s.enemies[0].hp).toBeLessThan(200);
+      expect(s.enemies[1].hp).toBeLessThan(200);
+      expect(s.enemies[2].hp).toBe(200);
+      expect(s.shots).toHaveLength(0); // No second heavy shot before its cooldown.
+    },
+  );
+  it("detects an enemy crossed within a single simulation step", () => {
+    const s = combat();
+    s.enemies[0].z = 2.5;
+    s.step(0.05);
+    expect(s.enemies[0].hp).toBeLessThan(200);
+  });
+  it("starts early missions with six enemies per wave and brings the next wave sooner", () => {
+    for (const level of levels.slice(0, 3)) {
+      const s = new Simulation();
+      s.start(level, freshProgress());
+      s.spawnWave();
+      expect(s.enemies).toHaveLength(6);
+    }
+    const s = new Simulation();
+    s.start(levels[0], freshProgress());
+    for (let i = 0; i < 160; i++) s.step(0.05);
+    expect(s.enemies.length + s.kills).toBe(12);
+  });
+});

@@ -124,6 +124,7 @@ function home() {
   sim.enemies = [];
   sim.gates = [];
   sim.shots = [];
+  sim.impacts = [];
   sim.tank = 0;
   keys.clear();
   setHidden("result", true);
@@ -359,7 +360,7 @@ try {
         (keys.has("a") || keys.has("arrowleft") ? 1 : 0);
       sim.targetX = Math.max(-5, Math.min(5, sim.targetX + dir * dt * 9));
       sim.step(dt);
-      if (sim.shots.length) audio.shot(now / 1000);
+      if (sim.fired) audio.shot(now / 1000);
       if (sim.status === "won" || sim.status === "lost") finish();
     }
     battlefield!.update(sim, paused || finished ? 0 : dt, active);
